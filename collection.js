@@ -30,6 +30,7 @@ const initCollection = () => {
     };
 
     const sort = query => (sortQuery) => {
+   
       query.sort = sortQuery;
       const theRealLimit = limit(query);
       const theRealSkip = skip(query);
@@ -47,8 +48,8 @@ const initCollection = () => {
     }
     const toArray = query => async () => {
       let selectedProjection;
-      if (query && query.projection !== undefined) {
-
+      let stringWhere;
+      if (query.projection !== null) {
         if (Object.keys(query.projection).length) {
           let objects = query.projection;
           let results = [];
@@ -65,20 +66,31 @@ const initCollection = () => {
           selectedProjection = "*"
         }
       } else {
-        console.log("not projection")
         selectedProjection = "*";
       }
-      let cql = `SELECT ${selectedProjection} FROM test1.${tableName}`;
+      let limit = query.limit ? `LIMIT ${query.limit}` : '';
+      let cql = `SELECT ${selectedProjection} FROM test1.${tableName} ${limit}`;
+
+      if (query.where !== null && Object.keys(query.where).length) {
+        let arr = Object.keys(query.where).map(es => `${es}=${typeof query.where[es] === "number" ? query.where[es] : `'${query.where[es]}'`}`);
+        stringWhere = arr.join(" AND ");
+        cql = `SELECT ${selectedProjection} FROM test1.${tableName} WHERE ${stringWhere} ${limit} ALLOW FILTERING`;
+      }
+
       let results = await cassandra.execute(cql);
       return results.rows;
     }
 
     const insertOne = async (data) => {
-      await cassandra.execute(`INSERT INTO test1.${tableName} JSON '${JSON.stringify(data)}'`);
-      return "success";
+      try {
+        await cassandra.execute(`INSERT INTO test1.${tableName} JSON '${JSON.stringify(data)}'`);
+        return "success";
+      } catch (err) {
+        return err;
+      }
     }
     const find = (filter, option) => {
-      let query = { where: null, projection: option ? option.projection : null, skip: null, limit: null, sort: null, };
+      let query = { where: filter ? filter : null, projection: option ? option.projection : null, skip: null, limit: null, sort: null, };
       const theRealLimit = limit(query);
       const theRealSort = sort(query);
       const theRealSkip = skip(query);
@@ -92,10 +104,45 @@ const initCollection = () => {
         toArray: theRealToArray,
         count: theRealCount
       }
-    }
-    return { find, insertOne }
+    };
+    const findOne = async (filter, option) => {
+      let query = { where: null, projection: option ? option.projection : null, skip: null, limit: null, sort: null, };
+      let selectedProjection;
+      let stringWhere = "";
+      if (filter !== null && Object.keys(filter).length) {
+        let arr = Object.keys(filter).map(es => `${es}=${typeof filter[es] === "number" ? filter[es] : `'${filter[es]}'`}`);
+        stringWhere = arr.join(" AND ");
+      }
+      if (query.projection !== null) {
+        if (Object.keys(query.projection).length) {
+          let objects = query.projection;
+          let results = [];
+
+          results = Object.keys(objects).filter(e => {
+            if (objects[e] === 1) {
+              return true;
+            } else {
+              return false;
+            }
+          });
+          selectedProjection = String(results);
+        } else {
+          selectedProjection = "*"
+        }
+      } else {
+        selectedProjection = "*";
+      }
+
+      let cql = `SELECT * FROM test1.${tableName} WHERE ${stringWhere} LIMIT 1 ALLOW FILTERING`;
+      let results = await cassandra.execute(cql);
+      return results.rows[0];
+    };
+
+    const deleteOne = async (column, value) => {
+      "DELETE ${params.keyspace_name}.${params.table_name} FROM ${params.table_name} WHERE ${whereClause.column_name}='${whereClause.value}'"
+    };
+    return { find, findOne, insertOne }
   }
-  //return { find,insertOne }
 };
 
 module.exports = initCollection;
